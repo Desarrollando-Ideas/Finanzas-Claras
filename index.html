@@ -2894,14 +2894,20 @@ async function loadPlanInfo(){
   }catch(e){}
   let usage={chatCount:0,scanCount:0};
   try{
-    const d=new Date();
-    const period=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    let period;
+    if(plan==='free'){
+      period='lifetime';
+    }else{
+      const d=new Date();
+      period=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    }
     const usageDoc=await getDoc(ud('usage',period));
     if(usageDoc.exists())usage=usageDoc.data();
   }catch(e){}
   const lim=PLAN_LIMITS[plan];
   nameEl.textContent=`Plan ${PLAN_LABELS[plan]}`;
-  usageEl.textContent=`Mensajes: ${usage.chatCount||0}/${lim.chat>=9999?'∞':lim.chat} · Escaneos: ${usage.scanCount||0}/${lim.scan}`;
+  const chatLabel=plan==='free'?'Mensajes (de por vida)':'Mensajes este mes';
+  usageEl.textContent=`${chatLabel}: ${usage.chatCount||0}/${lim.chat>=9999?'∞':lim.chat} · Escaneos: ${usage.scanCount||0}/${lim.scan}`;
 }
 
 // ── CALENDAR ──
