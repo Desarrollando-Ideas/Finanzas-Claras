@@ -648,12 +648,15 @@ input:checked+.tsl::before{transform:translateX(16px)}
             <button class="btn bs" style="margin-top:10px" id="btn-save-couple">Guardar ingreso del hogar</button>
           </div>
           <div class="card" style="grid-column:span 2">
-            <div class="ctitle">API Key de Claude (IA)</div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap">
-              <input type="password" id="set-apikey" placeholder="sk-ant-..." style="flex:1;min-width:160px">
-              <button class="btn bp" id="btn-save-key">Guardar</button>
+            <div class="ctitle">Tu plan — Asesor IA</div>
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+              <div>
+                <div id="plan-info-name" style="font-weight:600">Cargando...</div>
+                <div id="plan-info-usage" style="font-size:.82rem;color:var(--text2)">—</div>
+              </div>
+              <button class="btn bp bsm" id="btn-upgrade-plan">Actualizar plan</button>
             </div>
-            <p class="fhint">Necesaria para Asesor IA y escaneo de recibos. Se guarda encriptada.</p>
+            <p class="fhint">El uso del Asesor IA y el escaneo de recibos se renueva cada mes según tu plan.</p>
           </div>
           <div class="card"><div class="ctitle">Datos</div>
             <div style="display:flex;flex-direction:column;gap:8px">
@@ -1248,6 +1251,7 @@ function applyTheme(){const t=localStorage.getItem('th')||'light';document.docum
 // ── INIT ──
 function initApp(){
   applyTheme();applySB();fillAllCurs();renderAll();fetchRates();setInterval(fetchRates,300000);
+  loadPlanInfo();
   // topbar btn
   document.getElementById('btn-new-tx').onclick=openTxModal;
   // dashboard btns
@@ -1300,7 +1304,7 @@ function initApp(){
     if(!open)filterCurrAll();
   };
   // settings
-  document.getElementById('btn-save-key').onclick=saveApiKey;
+  document.getElementById('btn-upgrade-plan').onclick=()=>toast('Próximamente: actualizar plan (conectar con Wompi) 🚧');
   document.getElementById('btn-export2').onclick=exportCSV;
   document.getElementById('btn-logout2').onclick=doLogout;
   document.getElementById('btn-download-json').onclick=downloadJSON;
@@ -2571,11 +2575,18 @@ async function sendChat(){
   const um=document.createElement('div');um.className='cmsg u';um.textContent=msg;msgs.appendChild(um);
   chatHist.push({role:'user',content:msg});
   msgs.scrollTop=msgs.scrollHeight;
-  const key=await getKey();
-  if(!key){const am=document.createElement('div');am.className='cmsg a';am.textContent='⚠️ Configura tu API Key en Ajustes.';msgs.appendChild(am);return}
+  const token=await getIdToken();
+  if(!token){const am=document.createElement('div');am.className='cmsg a';am.textContent='⚠️ Inicia sesión de nuevo para usar el Asesor IA.';msgs.appendChild(am);return}
   const thinking=document.createElement('div');thinking.className='cmsg a';thinking.textContent='...';msgs.appendChild(thinking);msgs.scrollTop=msgs.scrollHeight;
   try{
-    const res=await fetch('https://finanzas-claras-api.julianrene113.workers.dev',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01'},body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:1000,system:`Eres un asesor financiero personal experto. Contexto: ${buildCtx()}. Responde en español, de forma concisa y práctica.`,messages:chatHist})});
+    const res=await fetch('https://finanzas-claras-api.julianrene113.workers.dev',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:1000,system:`Eres un asesor financiero personal experto. Contexto: ${buildCtx()}. Responde en español, de forma concisa y práctica.`,messages:chatHist})});
+    if(res.status===402){
+      const lim=await res.json().catch(()=>({}));
+      thinking.innerHTML=`<span style="color:#f59e0b">🔒 ${lim.message||'Llegaste al límite de tu plan este mes.'}</span>`;
+      msgs.scrollTop=msgs.scrollHeight;
+      loadPlanInfo();
+      return;
+    }
     if(!res.ok){
       const errText=await res.text();
       console.error('Chat API error:',errText);
@@ -2591,6 +2602,7 @@ async function sendChat(){
     const reply=data.content?.[0]?.text||'Sin respuesta — la IA devolvió contenido vacío';
     chatHist.push({role:'assistant',content:reply});
     thinking.textContent=reply;
+    loadPlanInfo();
   }catch(e){
     console.error('sendChat error:',e);
     thinking.textContent=`❌ Error al conectar: ${e.message}`;
@@ -2601,10 +2613,16 @@ async function sendChat(){
 async function genPlan(){
   openMod('mod-plan');
   document.getElementById('plan-content').textContent='Generando tu plan personalizado...';
-  const key=await getKey();
-  if(!key){document.getElementById('plan-content').textContent='⚠️ Configura tu API Key en Ajustes.';return}
+  const token=await getIdToken();
+  if(!token){document.getElementById('plan-content').textContent='⚠️ Inicia sesión de nuevo para usar el Asesor IA.';return}
   try{
-    const res=await fetch('https://finanzas-claras-api.julianrene113.workers.dev',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01'},body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:1200,system:'Eres un asesor financiero personal experto. Responde en español.',messages:[{role:'user',content:`Analiza mi situación financiera y dame un plan de acción concreto para los próximos 3 meses con pasos específicos. ${buildCtx()}`}]})});
+    const res=await fetch('https://finanzas-claras-api.julianrene113.workers.dev',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:1200,system:'Eres un asesor financiero personal experto. Responde en español.',messages:[{role:'user',content:`Analiza mi situación financiera y dame un plan de acción concreto para los próximos 3 meses con pasos específicos. ${buildCtx()}`}]})});
+    if(res.status===402){
+      const lim=await res.json().catch(()=>({}));
+      document.getElementById('plan-content').innerHTML=`<span style="color:#f59e0b">🔒 ${lim.message||'Llegaste al límite de tu plan este mes.'}</span>`;
+      loadPlanInfo();
+      return;
+    }
     if(!res.ok){
       const errText=await res.text();
       console.error('Plan API error:',errText);
@@ -2618,6 +2636,7 @@ async function genPlan(){
     if(data.error){document.getElementById('plan-content').innerHTML=`<span style="color:var(--red)">❌ ${data.error.message||data.error}</span>`;return}
     const reply=data.content?.[0]?.text||'Sin respuesta — la IA devolvió contenido vacío';
     document.getElementById('plan-content').innerHTML=reply.replace(/\n/g,'<br>');
+    loadPlanInfo();
   }catch(e){
     console.error('genPlan error:',e);
     document.getElementById('plan-content').innerHTML=`<span style="color:var(--red)">❌ Error al conectar: ${e.message}</span>`;
@@ -2650,7 +2669,7 @@ function previewScan(e){
 async function analyzeScan(){
   const file=document.getElementById('scan-file').files[0];
   if(!file){toast('Selecciona una imagen','e');return}
-  const key=await getKey();if(!key){toast('Configura tu API Key en Ajustes','e');return}
+  const token=await getIdToken();if(!token){toast('Inicia sesión de nuevo','e');return}
   document.getElementById('scan-result').innerHTML='<div class="cm">Analizando... 🔍</div>';
   const reader=new FileReader();
   reader.onload=async ev=>{
@@ -2682,8 +2701,14 @@ Responde SOLO JSON sin markdown, sin texto adicional, con esta estructura exacta
 
 IMPORTANTE: extrae cada producto/línea individual del recibo en el array "items", con cantidad, nombre y precio exactos. Si un campo no aparece en el recibo, usa "" o 0 según corresponda. El campo "amount" debe ser el TOTAL final pagado.`;
 
-      const res=await fetch('https://finanzas-claras-api.julianrene113.workers.dev',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01'},body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:2000,messages:[{role:'user',content:[{type:'image',source:{type:'base64',media_type:file.type,data:b64}},{type:'text',text:prompt}]}]})});
+      const res=await fetch('https://finanzas-claras-api.julianrene113.workers.dev',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:2000,messages:[{role:'user',content:[{type:'image',source:{type:'base64',media_type:file.type,data:b64}},{type:'text',text:prompt}]}]})});
 
+      if(res.status===402){
+        const lim=await res.json().catch(()=>({}));
+        document.getElementById('scan-result').innerHTML=`<div style="color:#f59e0b;font-size:.83rem;padding:10px;background:rgba(245,158,11,.1);border-radius:8px">🔒 ${lim.message||'Llegaste al límite de escaneos de tu plan este mes.'}</div>`;
+        loadPlanInfo();
+        return;
+      }
       if(!res.ok){
         const errText=await res.text();
         console.error('API error response:',errText);
@@ -2717,6 +2742,7 @@ IMPORTANTE: extrae cada producto/línea individual del recibo en el array "items
       }
 
       renderScanDetail(parsed);
+      loadPlanInfo();
     }catch(e){
       console.error('analyzeScan error:',e);
       document.getElementById('scan-result').innerHTML=`<div style="color:var(--red);font-size:.83rem;padding:10px;background:rgba(239,68,68,.1);border-radius:8px">❌ Error de conexión: ${e.message}</div>`;
@@ -2846,16 +2872,36 @@ function useScan(data){
   },200);
 }
 
-// ── SETTINGS ──
-async function saveApiKey(){
-  const key=document.getElementById('set-apikey').value.trim();
-  if(!key){toast('Ingresa la API Key','e');return}
-  await setDoc(ud('config','apikey'),{k:btoa(key)});
-  document.getElementById('set-apikey').value='';
-  toast('API Key guardada ✅');
+// ── SETTINGS / PLAN ──
+async function getIdToken(){
+  try{return await auth.currentUser.getIdToken()}catch(e){return null}
 }
-async function getKey(){
-  try{const d=await getDoc(ud('config','apikey'));if(d.exists())return atob(d.data().k)}catch(e){}return null;
+// Mantén esto sincronizado con los límites definidos en el Worker (PLANS).
+const PLAN_LABELS={free:'Gratis',basico:'Básico',pro:'Pro'};
+const PLAN_LIMITS={free:{chat:5,scan:0},basico:{chat:40,scan:10},pro:{chat:9999,scan:30}};
+async function loadPlanInfo(){
+  const nameEl=document.getElementById('plan-info-name');
+  const usageEl=document.getElementById('plan-info-usage');
+  if(!nameEl||!usageEl)return;
+  let plan='free';
+  try{
+    const subDoc=await getDoc(ud('subscription','main'));
+    if(subDoc.exists()){
+      const sub=subDoc.data();
+      const notExpired=!sub.currentPeriodEnd||new Date(sub.currentPeriodEnd)>=new Date();
+      if(sub.status==='active'&&notExpired&&PLAN_LIMITS[sub.plan])plan=sub.plan;
+    }
+  }catch(e){}
+  let usage={chatCount:0,scanCount:0};
+  try{
+    const d=new Date();
+    const period=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    const usageDoc=await getDoc(ud('usage',period));
+    if(usageDoc.exists())usage=usageDoc.data();
+  }catch(e){}
+  const lim=PLAN_LIMITS[plan];
+  nameEl.textContent=`Plan ${PLAN_LABELS[plan]}`;
+  usageEl.textContent=`Mensajes: ${usage.chatCount||0}/${lim.chat>=9999?'∞':lim.chat} · Escaneos: ${usage.scanCount||0}/${lim.scan}`;
 }
 
 // ── CALENDAR ──
